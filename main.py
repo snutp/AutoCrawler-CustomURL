@@ -53,7 +53,7 @@ class Sites:
 
 class AutoCrawler:
     def __init__(self, skip_already_exist=True, n_threads=4, do_google=True, do_naver=True, download_path='download',
-                 full_resolution=False, face=False, no_gui=False, limit=0, proxy_list=None):
+                 full_resolution=False, face=False, no_gui=False, limit=0, proxy_list=None, custom_url=''):
         """
         :param skip_already_exist: Skips keyword already downloaded before. This is needed when re-downloading.
         :param n_threads: Number of threads to download.
@@ -65,6 +65,7 @@ class AutoCrawler:
         :param no_gui: No GUI mode. Acceleration for full_resolution mode.
         :param limit: Maximum count of images to download. (0: infinite)
         :param proxy_list: The proxy list. Every thread will randomly choose one from the list.
+        :param custom_url: Custom url information.
         """
 
         self.skip = skip_already_exist
@@ -77,6 +78,7 @@ class AutoCrawler:
         self.no_gui = no_gui
         self.limit = limit
         self.proxy_list = proxy_list if proxy_list and len(proxy_list) > 0 else None
+        self.custom_url = custom_url
 
         os.makedirs('./{}'.format(self.download_path), exist_ok=True)
 
@@ -163,8 +165,20 @@ class AutoCrawler:
         data = base64.decodebytes(bytes(encoded, encoding='utf-8'))
         return data
 
+    @staticmethod
+    def parse_rimg_id(url):
+        """
+        :param url: Url from related image search.
+        :return: Parsed rimg id.
+        """
+        return url.split('rimg:')[-1].split('&')[0]
+
     def download_images(self, keyword, links, site_name, max_count=0):
-        self.make_dir('{}/{}'.format(self.download_path, keyword.replace('"', '')))
+        if self.custom_url:
+            folder_name = self.parse_rimg_id(self.custom_url)
+        else:
+            folder_name = keyword.replace('"', '')
+        self.make_dir('{}/{}'.format(self.download_path, folder_name))
         total = len(links)
         success_count = 0
 
@@ -191,7 +205,7 @@ class AutoCrawler:
                     ext = self.get_extension_from_link(link)
                     is_base64 = False
 
-                no_ext_path = '{}/{}/{}_{}'.format(self.download_path.replace('"', ''), keyword, site_name,
+                no_ext_path = '{}/{}/{}_{}'.format(self.download_path.replace('"', ''), folder_name, site_name,
                                                    str(index).zfill(4))
                 path = no_ext_path + '.' + ext
                 self.save_object_to_file(response, path, is_base64=is_base64)
@@ -214,7 +228,7 @@ class AutoCrawler:
                 print('Download failed - ', e)
                 continue
 
-    def download_from_site(self, keyword, site_code):
+    def download_from_site(self, keyword, site_code, custom_url):
         site_name = Sites.get_text(site_code)
         add_url = Sites.get_face_url(site_code) if self.face else ""
 
@@ -231,16 +245,16 @@ class AutoCrawler:
             print('Collecting links... {} from {}'.format(keyword, site_name))
 
             if site_code == Sites.GOOGLE:
-                links = collect.google(keyword, add_url)
+                links = collect.google(keyword, add_url, custom_url)
 
             elif site_code == Sites.NAVER:
-                links = collect.naver(keyword, add_url)
+                links = collect.naver(keyword, add_url, custom_url)
 
             elif site_code == Sites.GOOGLE_FULL:
-                links = collect.google_full(keyword, add_url)
+                links = collect.google_full(keyword, add_url, custom_url)
 
             elif site_code == Sites.NAVER_FULL:
-                links = collect.naver_full(keyword, add_url)
+                links = collect.naver_full(keyword, add_url, custom_url)
 
             else:
                 print('Invalid Site Code')
@@ -256,7 +270,7 @@ class AutoCrawler:
             print('Exception {}:{} - {}'.format(site_name, keyword, e))
 
     def download(self, args):
-        self.download_from_site(keyword=args[0], site_code=args[1])
+        self.download_from_site(keyword=args[0], site_code=args[1], custom_url=args[2])
 
     def do_crawling(self):
         keywords = self.get_keywords()
@@ -273,15 +287,15 @@ class AutoCrawler:
 
             if self.do_google and not google_done:
                 if self.full_resolution:
-                    tasks.append([keyword, Sites.GOOGLE_FULL])
+                    tasks.append([keyword, Sites.GOOGLE_FULL, self.custom_url])
                 else:
-                    tasks.append([keyword, Sites.GOOGLE])
+                    tasks.append([keyword, Sites.GOOGLE, self.custom_url])
 
             if self.do_naver and not naver_done:
                 if self.full_resolution:
-                    tasks.append([keyword, Sites.NAVER_FULL])
+                    tasks.append([keyword, Sites.NAVER_FULL, self.custom_url])
                 else:
-                    tasks.append([keyword, Sites.NAVER])
+                    tasks.append([keyword, Sites.NAVER, self.custom_url])
 
         pool = Pool(self.n_threads)
         pool.map_async(self.download, tasks)
@@ -356,6 +370,9 @@ if __name__ == '__main__':
     parser.add_argument('--proxy-list', type=str, default='',
                         help='The comma separated proxy list like: "socks://127.0.0.1:1080,http://127.0.0.1:1081". '
                              'Every thread will randomly choose one from the list.')
+    parser.add_argument('--custom-url', type=str, default='',
+                        help='Set download from custom url'
+                             'Keywords will be ignored and the link will be launched.')
     args = parser.parse_args()
 
     _skip = False if str(args.skip).lower() == 'false' else True
@@ -366,6 +383,7 @@ if __name__ == '__main__':
     _face = False if str(args.face).lower() == 'false' else True
     _limit = int(args.limit)
     _proxy_list = args.proxy_list.split(',')
+    _custom_url = args.custom_url
 
     no_gui_input = str(args.no_gui).lower()
     if no_gui_input == 'auto':
@@ -381,5 +399,5 @@ if __name__ == '__main__':
 
     crawler = AutoCrawler(skip_already_exist=_skip, n_threads=_threads,
                           do_google=_google, do_naver=_naver, full_resolution=_full,
-                          face=_face, no_gui=_no_gui, limit=_limit, proxy_list=_proxy_list)
+                          face=_face, no_gui=_no_gui, limit=_limit, proxy_list=_proxy_list, custom_url=_custom_url)
     crawler.do_crawling()

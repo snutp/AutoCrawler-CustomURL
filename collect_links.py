@@ -82,7 +82,7 @@ class CollectLinks:
         pos = self.browser.execute_script("return window.pageYOffset;")
         return pos
 
-    def wait_and_click(self, xpath):
+    def wait_and_click(self, xpath, ignore_error=False):
         #  Sometimes click fails unreasonably. So tries to click at all cost.
         try:
             w = WebDriverWait(self.browser, 15)
@@ -90,6 +90,7 @@ class CollectLinks:
             elem.click()
             self.highlight(elem)
         except Exception as e:
+            if ignore_error: return
             print('Click time out - {}'.format(xpath))
             print('Refreshing browser...')
             self.browser.refresh()
@@ -106,8 +107,11 @@ class CollectLinks:
     def remove_duplicates(_list):
         return list(dict.fromkeys(_list))
 
-    def google(self, keyword, add_url=""):
-        self.browser.get("https://www.google.com/search?q={}&source=lnms&tbm=isch{}".format(keyword, add_url))
+    def google(self, keyword, add_url="", custom_url=None):
+        if custom_url:
+            self.browser.get(custom_url)
+        else:
+            self.browser.get("https://www.google.com/search?q={}&source=lnms&tbm=isch{}".format(keyword, add_url))
 
         time.sleep(1)
 
@@ -197,17 +201,39 @@ class CollectLinks:
 
         return links
 
-    def google_full(self, keyword, add_url=""):
+    def google_full(self, keyword, add_url="", custom_url=None):
         print('[Full Resolution Mode]')
 
-        self.browser.get("https://www.google.com/search?q={}&tbm=isch{}".format(keyword, add_url))
+        if custom_url:
+            self.browser.get(custom_url)
+        else:
+            self.browser.get("https://www.google.com/search?q={}&source=lnms&tbm=isch{}".format(keyword, add_url))
         time.sleep(1)
 
         elem = self.browser.find_element_by_tag_name("body")
 
         print('Scraping links')
 
-        self.wait_and_click('//div[@data-ri="0"]')
+        for i in range(60):
+            elem.send_keys(Keys.PAGE_DOWN)
+            time.sleep(0.2)
+
+        try:
+            # You may need to change this. Because google image changes rapidly.
+            # btn_more = self.browser.find_element(By.XPATH, '//input[@value="결과 더보기"]')
+            # self.wait_and_click('//input[@id="smb"]')
+            self.wait_and_click('//input[@type="button"]', ignore_error=True)
+
+            for i in range(60):
+                elem.send_keys(Keys.PAGE_DOWN)
+                time.sleep(0.2)
+
+        except ElementNotVisibleException:
+            pass
+
+        elem.send_keys(Keys.HOME)
+        time.sleep(1)
+        self.wait_and_click('//div[@data-ri="0"]', ignore_error=True)
         time.sleep(1)
 
         links = []
@@ -228,6 +254,7 @@ class CollectLinks:
 
                 xpath = '//div[@class="k7O2sd"]'
                 loading_bar = div_box.find_element(By.XPATH, xpath)
+                self.highlight(loading_bar)
 
                 # Wait for image to load. If not it will display base64 code.
                 while str(loading_bar.get_attribute('style')) != 'display: none;':
@@ -253,7 +280,7 @@ class CollectLinks:
                 scroll_patience = 0
                 last_scroll = scroll
 
-            if scroll_patience >= 30:
+            if scroll_patience >= 500:
                 break
 
             elem.send_keys(Keys.RIGHT)
